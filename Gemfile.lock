@@ -22,7 +22,6 @@ GEM
     parser (2.7.1.4)
       ast (~> 2.4.1)
     rainbow (3.0.0)
-    rake (12.3.3)
     regexp_parser (1.7.1)
     rexml (3.2.4)
     rspec (3.9.0)
@@ -59,8 +58,7 @@ PLATFORMS
   ruby
 
 DEPENDENCIES
-  rake (~> 12.0)
-  rspec (~> 3.0)
+  rspec (~> 3.9)
   rubocop (~> 0.86.0)
   ssh_tunnels!
   strong_versions (~> 0.4.4)
