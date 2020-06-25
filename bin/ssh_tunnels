@@ -1,0 +1,57 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+$LOAD_PATH << File.expand_path(File.join(__dir__, '..', 'lib'))
+
+require 'ssh_tunnels'
+
+require 'optparse'
+require 'io/console'
+require 'yaml'
+
+options = {}
+USAGE = 'Usage: ssh_tunnels [options]'
+
+OptionParser.new do |opts|
+  opts.banner = USAGE
+
+  opts.on('-c', '--config PATH', 'Configuration file path') do |config|
+    options[:config_path] = config
+  end
+end.parse!
+
+unless options[:config_path]
+  warn('Must provide configuration path. See --help')
+  exit 1
+end
+
+unless File.exist?(options[:config_path])
+  warn("Unable to locate configuration file: #{options[:config_path]}")
+  exit 1
+end
+
+config = YAML.safe_load(File.read(options[:config_path]))
+
+begin
+  gateway = config.fetch('gateway')
+  tunnels = config.fetch('tunnels')
+rescue KeyError
+  warn('Configuration file must provide `gateway` and `tunnels` sections.')
+  exit 1
+end
+
+user = ENV.fetch('USER')
+print 'Enter SSH key passphrase (leave blank if not required): '
+passphrase = STDIN.noecho(&:gets).chomp
+puts
+
+begin
+  tunnels = tunnels.map do |name, tunnel_config|
+    SshTunnels::Tunnel.new(name, user, tunnel_config, gateway, passphrase)
+  end
+  ui = SshTunnels::UI.new(tunnels)
+  ui.run
+rescue Interrupt
+  puts 'Interrupt detected.'
+  ui.shutdown
+end
