@@ -4,6 +4,8 @@ module SshTunnels
   # rubocop:disable Metrics/ClassLength
   # User Interface
   class UI
+    IDENTIFIERS = ['1'..'9', 'a'..'z', 'A'..'Z'].map(&:to_a).flatten
+
     def initialize(tunnels)
       @tunnels = tunnels
     end
@@ -67,7 +69,7 @@ module SshTunnels
     def display_tunnel(tunnel, index)
       window.setpos(index + 2, 2)
       window.attrset(color(:white))
-      window.addstr("#{index + 1}. ")
+      window.addstr("#{IDENTIFIERS[index]}. ")
       window.attrset(tunnel_color(tunnel))
       window.addstr("#{tunnel.name} ")
       window.attrset(color(:cyan))
@@ -84,9 +86,9 @@ module SshTunnels
 
     def process_input(input)
       raise UserQuit if input == 'q'
-      return status("Unrecognized input: #{input}") unless input.is_a?(String) && input =~ /\A\d+\Z/
+      return status("Unrecognized input: #{input}") unless input.is_a?(String) && input =~ /\A[0-9a-zA-Z]\Z/
 
-      tunnel = @tunnels[input.to_i - 1]
+      tunnel = @tunnels[IDENTIFIERS.index { |value| value == input }]
       return status("Unrecognized tunnel: #{input}") if tunnel.nil?
 
       if tunnel.active?
