@@ -27,11 +27,11 @@ module SshTunnels
     end
 
     def open
-      @connection = Net::SSH::Gateway.new(@gateway.fetch('host'), @user, options)
+      @connection = Net::SSH::Gateway.new(@gateway.fetch('host'), @gateway.fetch('user', @user), options)
       @connection.open(remote_host, remote_port, local_port)
-    rescue Errno::EADDRINUSE => e
-      @error = e.to_s
+    rescue StandardError => e
       shutdown
+      raise
     end
 
     def active?
@@ -41,7 +41,7 @@ module SshTunnels
     end
 
     def shutdown
-      @connection.shutdown!
+      @connection&.shutdown!
     end
 
     private
@@ -55,14 +55,14 @@ module SshTunnels
     end
 
     def local_port
-      @config.fetch('local_port')
+      @config.fetch('local_port', remote_port)
     end
 
     def options
       {
         keepalive: true,
         keepalive_interval: 5,
-        port: @gateway.fetch('port'),
+        port: @gateway.fetch('port', 22),
         passphrase: @passphrase
       }
     end

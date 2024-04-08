@@ -20,24 +20,40 @@ OptionParser.new do |opts|
   end
 end.parse!
 
-unless options[:config_path]
-  warn('Must provide configuration path. See --help')
+config_path = options.fetch(:config_path, File.expand_path('~/.ssh_tunnels.yml'))
+
+unless File.exist?(config_path)
+  warn("Unable to locate configuration file: #{config_path}")
   exit 1
 end
 
-unless File.exist?(options[:config_path])
-  warn("Unable to locate configuration file: #{options[:config_path]}")
-  exit 1
-end
-
-config = YAML.safe_load(File.read(options[:config_path]))
+config = YAML.safe_load(File.read(config_path))
 
 begin
-  gateway = config.fetch('gateway')
+  default_gateway = config.fetch('default_gateway', nil)
+  if !config.key?('tunnels')
+    warn('Configuration file must provide `tunnels` section. Exiting.')
+    exit 1
+  end
+
+  gateways = config.fetch('gateways', {})
+
   tunnels = config.fetch('tunnels')
-rescue KeyError
-  warn('Configuration file must provide `gateway` and `tunnels` sections.')
-  exit 1
+  error = false
+  tunnels.each do |key, tunnel|
+    if tunnel.key?('gateway') && !gateways.key?(tunnel.fetch('gateway'))
+      error = true
+      warn("Tunnel `#{key}` references unknown gateway `#{tunnel.fetch('gateway')}`")
+    elsif !tunnel.key?('gateway') && default_gateway.nil?
+      error = true
+      warn("Tunnel `#{key}` must provide `gateway` key or define a top-level `default_gateway` configuration.")
+    end
+  end
+
+  if error
+    warn("Configuration errors detected. Exiting.")
+    exit 1
+  end
 end
 
 user = ENV.fetch('USER')
@@ -47,6 +63,11 @@ puts
 
 begin
   tunnels = tunnels.map do |name, tunnel_config|
+    gateway = if tunnel_config.key?('gateway')
+                gateways.fetch(tunnel_config.fetch('gateway'))
+              else
+                default_gateway
+              end
     SshTunnels::Tunnel.new(name, user, tunnel_config, gateway, passphrase)
   end
   ui = SshTunnels::UI.new(tunnels)

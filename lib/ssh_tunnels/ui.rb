@@ -96,7 +96,11 @@ module SshTunnels
       else
         status("Connecting: #{tunnel}")
       end
-      tunnel.toggle
+      begin
+        tunnel.toggle
+      rescue StandardError => e
+        status("Error: #{e}")
+      end
     end
 
     def tunnel_color(tunnel)
