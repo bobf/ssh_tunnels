@@ -63,7 +63,17 @@ The `tunnels` section is a map where each key represents a named tunnel. Each tu
 * `host`: The remote host to connect to from the gateway.
 * `remote`: The remote port to use for forwarding.
 * `local`: The local port to bind to (defaults to the `remote` port).
-* `local_ip`: The local IP address to bind to (optional, defaults to `127.0.0.1`). Equivalent to the `<local-ip>` component in `ssh -L <local-ip>:<local-port>:<remote-host>:<remote-port>`.
+* `local_ip`: The local IP address to bind to (optional, defaults to the top-level `default_local_ip` if set, otherwise `127.0.0.1`). Equivalent to the `<local-ip>` component in `ssh -L <local-ip>:<local-port>:<remote-host>:<remote-port>`. Takes precedence over `default_local_ip`.
+
+### Default local IP
+
+The top-level `default_local_ip` option sets the local bind IP address used for all tunnels that do not specify their own `local_ip`:
+
+```yaml
+# config.yml
+
+default_local_ip: 0.0.0.0
+```
 
 ```yaml
 # config.yml

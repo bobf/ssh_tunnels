@@ -31,6 +31,7 @@ config = YAML.safe_load(File.read(config_path))
 
 begin
   default_gateway = config.fetch('default_gateway', nil)
+  default_local_ip = config.fetch('default_local_ip', nil)
   if !config.key?('tunnels')
     warn('Configuration file must provide `tunnels` section. Exiting.')
     exit 1
@@ -68,7 +69,8 @@ begin
               else
                 default_gateway
               end
-    SshTunnels::Tunnel.new(name, user, tunnel_config, gateway, passphrase)
+    config = { 'local_ip' => default_local_ip }.merge(tunnel_config)
+    SshTunnels::Tunnel.new(name, user, config, gateway, passphrase)
   end
   ui = SshTunnels::UI.new(tunnels)
   ui.run
