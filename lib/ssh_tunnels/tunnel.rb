@@ -33,11 +33,7 @@ module SshTunnels
 
     def open
       @session = Net::SSH.start(@gateway.fetch('host'), @gateway.fetch('user', @user), options)
-      if local_host
-        @session.forward.local(local_host, local_port, remote_host, remote_port)
-      else
-        @session.forward.local(local_port, remote_host, remote_port)
-      end
+      forward_local
       @active = true
       @thread = Thread.new { @session.loop(0.001) { @active } }
     rescue StandardError
@@ -58,6 +54,12 @@ module SshTunnels
     end
 
     private
+
+    def forward_local
+      args = [local_port, remote_host, remote_port]
+      args.unshift(local_host) if local_host
+      @session.forward.local(*args)
+    end
 
     def remote_host
       @config.fetch('host')

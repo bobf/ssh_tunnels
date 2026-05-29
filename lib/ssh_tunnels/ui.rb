@@ -91,16 +91,14 @@ module SshTunnels
       tunnel = @tunnels[IDENTIFIERS.index { |value| value == input }]
       return status("Unrecognized tunnel: #{input}") if tunnel.nil?
 
-      if tunnel.active?
-        status("Disconnecting: #{tunnel}")
-      else
-        status("Connecting: #{tunnel}")
-      end
-      begin
-        tunnel.toggle
-      rescue StandardError => e
-        status("Error: #{e}")
-      end
+      toggle_tunnel(tunnel)
+    end
+
+    def toggle_tunnel(tunnel)
+      status("#{tunnel.active? ? 'Disconnecting' : 'Connecting'}: #{tunnel}")
+      tunnel.toggle
+    rescue StandardError => e
+      status("Error: #{e}")
     end
 
     def tunnel_color(tunnel)
