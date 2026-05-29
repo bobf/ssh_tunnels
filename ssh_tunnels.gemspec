@@ -25,8 +25,8 @@ Gem::Specification.new do |spec|
   spec.executables   = 'ssh_tunnels'
   spec.require_paths = ['lib']
 
-  spec.add_runtime_dependency 'curses', '~> 1.3'
-  spec.add_runtime_dependency 'net-ssh-gateway', '~> 2.0'
+  spec.add_runtime_dependency 'curses', '~> 1.4'
+  spec.add_runtime_dependency 'net-ssh', '~> 7.0'
   spec.add_runtime_dependency 'ed25519', '~> 1.3'
   spec.add_runtime_dependency 'bcrypt_pbkdf', '~> 1.1'
 

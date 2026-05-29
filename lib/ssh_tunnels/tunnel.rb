@@ -10,13 +10,18 @@ module SshTunnels
       @user = user
       @config = config
       @passphrase = passphrase
-      @config = config
       @gateway = gateway
-      @connection = nil
+      @session = nil
+      @thread = nil
+      @active = false
     end
 
     def to_s
-      base = "#{local_port}:#{remote_host}:#{remote_port}"
+      base = if local_host
+               "#{local_host}:#{local_port}:#{remote_host}:#{remote_port}"
+             else
+               "#{local_port}:#{remote_host}:#{remote_port}"
+             end
       return base unless @error
 
       "#{base} (#{@error})"
@@ -27,21 +32,29 @@ module SshTunnels
     end
 
     def open
-      @connection = Net::SSH::Gateway.new(@gateway.fetch('host'), @gateway.fetch('user', @user), options)
-      @connection.open(remote_host, remote_port, local_port)
-    rescue StandardError => e
+      @session = Net::SSH.start(@gateway.fetch('host'), @gateway.fetch('user', @user), options)
+      if local_host
+        @session.forward.local(local_host, local_port, remote_host, remote_port)
+      else
+        @session.forward.local(local_port, remote_host, remote_port)
+      end
+      @active = true
+      @thread = Thread.new { @session.loop(0.001) { @active } }
+    rescue StandardError
       shutdown
       raise
     end
 
     def active?
-      return false if @connection.nil?
-
-      @connection.active?
+      @active && @thread&.alive?
     end
 
     def shutdown
-      @connection&.shutdown!
+      @active = false
+      @thread&.join
+      @session&.close
+      @session = nil
+      @thread = nil
     end
 
     private
@@ -52,6 +65,10 @@ module SshTunnels
 
     def remote_port
       @config.fetch('remote_port')
+    end
+
+    def local_host
+      @config.fetch('local_ip', nil)
     end
 
     def local_port

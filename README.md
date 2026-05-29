@@ -63,6 +63,7 @@ The `tunnels` section is a map where each key represents a named tunnel. Each tu
 * `host`: The remote host to connect to from the gateway.
 * `remote`: The remote port to use for forwarding.
 * `local`: The local port to bind to (defaults to the `remote` port).
+* `local_ip`: The local IP address to bind to (optional, defaults to `127.0.0.1`). Equivalent to the `<local-ip>` component in `ssh -L <local-ip>:<local-port>:<remote-host>:<remote-port>`.
 
 ```yaml
 # config.yml
@@ -85,6 +86,11 @@ tunnels:
     local: 1111
     host: other.host.example.com
     remote: 5555
+  bound_host:
+    local_ip: 192.168.1.100
+    local: 2222
+    host: internal.host.example.com
+    remote: 8080
 ```
 
 ## Contributing

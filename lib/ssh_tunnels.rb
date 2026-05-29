@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 require 'curses'
-require 'net/ssh/gateway'
+require 'net/ssh'
 
 require 'ssh_tunnels/version'
 require 'ssh_tunnels/tunnel'
