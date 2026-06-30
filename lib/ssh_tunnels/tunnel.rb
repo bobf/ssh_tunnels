@@ -32,12 +32,15 @@ module SshTunnels
     end
 
     def open
-      @session = Net::SSH.start(@gateway.fetch('host'), @gateway.fetch('user', @user), options)
-      forward_local
+      @error = nil
+      connect
       @active = true
-      @thread = Thread.new { @session.loop(0.001) { @active } }
-    rescue StandardError
-      shutdown
+      @thread = Thread.new { run_loop }
+    rescue StandardError => e
+      @error = e
+      @active = false
+      @session&.close
+      @session = nil
       raise
     end
 
@@ -48,12 +51,31 @@ module SshTunnels
     def shutdown
       @active = false
       @thread&.join
-      @session&.close
-      @session = nil
       @thread = nil
+      @session = nil
     end
 
     private
+
+    def connect
+      @session = Net::SSH.start(@gateway.fetch('host'), @gateway.fetch('user', @user), options)
+      forward_local
+    end
+
+    # Runs in the background thread. When the loop ends — whether because the
+    # user disconnected (@active set to false) or the connection dropped (the
+    # loop raises) — we must close the session here so the local forwarded port
+    # is released. Otherwise the orphaned listener keeps the port bound, causing
+    # connecting apps to hang and reconnects to fail with "address in use".
+    def run_loop
+      @session.loop(0.001) { @active }
+    rescue StandardError => e
+      @error = e
+    ensure
+      @active = false
+      @session&.close
+      @session = nil
+    end
 
     def forward_local
       args = [local_port, remote_host, remote_port]
