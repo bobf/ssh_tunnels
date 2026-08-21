@@ -80,7 +80,7 @@ module SshTunnels
     def display_usage
       window.setpos(@tunnels.size + 3, 2)
       window.attrset(color(:cyan))
-      message = "[1-#{@tunnels.size}] to connect/disconnect. Press 'q' to quit."
+      message = "[1-#{IDENTIFIERS[@tunnels.size - 1]}] to connect/disconnect. Press 'q' to quit."
       window.addstr(message)
     end
 
