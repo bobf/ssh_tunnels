@@ -39,8 +39,7 @@ module SshTunnels
     rescue StandardError => e
       @error = e
       @active = false
-      @session&.close
-      @session = nil
+      close_session
       raise
     end
 
@@ -64,17 +63,35 @@ module SshTunnels
 
     # Runs in the background thread. When the loop ends — whether because the
     # user disconnected (@active set to false) or the connection dropped (the
-    # loop raises) — we must close the session here so the local forwarded port
-    # is released. Otherwise the orphaned listener keeps the port bound, causing
-    # connecting apps to hang and reconnects to fail with "address in use".
+    # loop raises) — the local forwarded port must be released here. Otherwise
+    # the orphaned listener keeps the port bound, causing connecting apps to
+    # hang and reconnects to fail with "address in use".
     def run_loop
       @session.loop(0.001) { @active }
     rescue StandardError => e
       @error = e
     ensure
       @active = false
+      close_session
+    end
+
+    # Net::SSH::Connection::Session#close only closes channels and the
+    # transport socket; the TCPServer bound by forward.local is only released
+    # by forward.cancel_local, so cancel before closing.
+    def close_session
+      release_port
       @session&.close
       @session = nil
+    end
+
+    def release_port
+      return if @session.nil?
+
+      args = [local_port]
+      args << local_host if local_host
+      @session.forward.cancel_local(*args)
+    rescue StandardError
+      nil
     end
 
     def forward_local

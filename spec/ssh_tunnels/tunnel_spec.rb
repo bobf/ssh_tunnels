@@ -9,18 +9,30 @@ require 'timeout'
 class FakeForward
   def initialize(session)
     @session = session
+    @registered = []
   end
 
   def local(local_port, *_rest)
     raise Errno::EADDRINUSE, local_port.to_s if @session.bound_ports.include?(local_port)
 
     @session.bound_ports << local_port
+    @registered << local_port
     @session.bound_port = local_port
+  end
+
+  # Only releases ports this forwarder bound itself, mirroring the real
+  # cancel_local, which only closes sockets in @local_forwarded_ports.
+  def cancel_local(local_port, _bind_address = '127.0.0.1')
+    return unless @registered.delete(local_port)
+
+    @session.bound_ports.delete(local_port)
   end
 end
 
 # Fake net-ssh session. `loop_behavior: :raise` simulates the connection
 # dropping mid-loop; `:clean` runs until the tunnel sets @active to false.
+# Like the real Net::SSH session, `close` does NOT release forwarded ports —
+# only `forward.cancel_local` does.
 class FakeSession
   attr_accessor :bound_port
   attr_reader :bound_ports, :closed
@@ -42,10 +54,7 @@ class FakeSession
   end
 
   def close
-    return if @closed
-
     @closed = true
-    @bound_ports.delete(@bound_port)
   end
 end
 
@@ -111,6 +120,16 @@ RSpec.describe SshTunnels::Tunnel do
       expect(bound_ports).to be_empty
       expect(tunnel.error).to be_nil
       expect(tunnel.active?).to be(false)
+    end
+
+    it 'can reconnect after a deliberate disconnect' do
+      tunnel.open
+      tunnel.shutdown
+
+      expect { tunnel.open }.not_to raise_error
+      expect(tunnel.active?).to be(true)
+
+      tunnel.shutdown
     end
   end
 
