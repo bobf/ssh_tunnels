@@ -1,9 +1,27 @@
 # frozen_string_literal: true
 
 module SshTunnels
+  # rubocop:disable Metrics/ClassLength
   # SSH Tunnel
   class Tunnel
-    attr_reader :name, :error
+    attr_reader :name, :error, :config, :gateway
+
+    # Merges freshly-loaded tunnels into the current list. Tunnels that share a
+    # name keep their existing object (and therefore any live connection) and
+    # receive the new settings via #update. Tunnels no longer present in the
+    # configuration are dropped if inactive, or kept and flagged as removed
+    # while still connected so a file edit never interrupts a live session.
+    def self.reconcile(current, incoming)
+      existing = current.to_h { |tunnel| [tunnel.name, tunnel] }
+      merged = incoming.map do |tunnel|
+        match = existing.delete(tunnel.name)
+        next tunnel if match.nil?
+
+        match.update(tunnel.config, tunnel.gateway)
+        match
+      end
+      merged + existing.values.select(&:active?).each(&:remove)
+    end
 
     def initialize(name, user, config, gateway, passphrase)
       @name = name
@@ -14,6 +32,8 @@ module SshTunnels
       @session = nil
       @thread = nil
       @active = false
+      @pending = nil
+      @removed = false
     end
 
     def to_s
@@ -27,11 +47,38 @@ module SshTunnels
       "#{base} (#{@error})"
     end
 
+    # Called on configuration reload. Inactive tunnels take the new settings
+    # immediately; active tunnels keep running on their current settings and
+    # apply the new ones when next disconnected.
+    def update(config, gateway)
+      @removed = false
+      if config == @config && gateway == @gateway
+        @pending = nil
+      elsif active?
+        @pending = [config, gateway]
+      else
+        apply(config, gateway)
+      end
+    end
+
+    def remove
+      @removed = true
+    end
+
+    def removed?
+      @removed
+    end
+
+    def changed?
+      !@pending.nil?
+    end
+
     def toggle
       active? ? shutdown : open
     end
 
     def open
+      apply_pending
       @error = nil
       connect
       @active = true
@@ -52,9 +99,21 @@ module SshTunnels
       @thread&.join
       @thread = nil
       @session = nil
+      apply_pending
     end
 
     private
+
+    def apply_pending
+      apply(*@pending) unless @pending.nil?
+    end
+
+    def apply(config, gateway)
+      @config = config
+      @gateway = gateway
+      @pending = nil
+      @error = nil
+    end
 
     def connect
       @session = Net::SSH.start(@gateway.fetch('host'), @gateway.fetch('user', @user), options)
@@ -125,4 +184,5 @@ module SshTunnels
       }
     end
   end
+  # rubocop:enable Metrics/ClassLength
 end

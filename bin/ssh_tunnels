@@ -22,39 +22,12 @@ end.parse!
 
 config_path = options.fetch(:config_path, File.expand_path('~/.ssh_tunnels.yml'))
 
-unless File.exist?(config_path)
-  warn("Unable to locate configuration file: #{config_path}")
-  exit 1
-end
-
-config = YAML.safe_load_file(config_path)
-
 begin
-  default_gateway = config.fetch('default_gateway', nil)
-  default_local_ip = config.fetch('default_local_ip', nil)
-  unless config.key?('tunnels')
-    warn('Configuration file must provide `tunnels` section. Exiting.')
-    exit 1
-  end
-
-  gateways = config.fetch('gateways', {})
-
-  tunnels = config.fetch('tunnels')
-  error = false
-  tunnels.each do |key, tunnel|
-    if tunnel.key?('gateway') && !gateways.key?(tunnel.fetch('gateway'))
-      error = true
-      warn("Tunnel `#{key}` references unknown gateway `#{tunnel.fetch('gateway')}`")
-    elsif !tunnel.key?('gateway') && default_gateway.nil?
-      error = true
-      warn("Tunnel `#{key}` must provide `gateway` key or define a top-level `default_gateway` configuration.")
-    end
-  end
-
-  if error
-    warn('Configuration errors detected. Exiting.')
-    exit 1
-  end
+  config = SshTunnels::Config.load(config_path)
+rescue SshTunnels::ConfigError => e
+  warn(e.message)
+  warn('Configuration errors detected. Exiting.')
+  exit 1
 end
 
 user = ENV.fetch('USER')
@@ -63,18 +36,9 @@ passphrase = $stdin.noecho(&:gets).chomp
 puts
 
 begin
-  tunnels = tunnels.map do |name, tunnel_config|
-    gateway = if tunnel_config.key?('gateway')
-                gateways.fetch(tunnel_config.fetch('gateway'))
-              else
-                default_gateway
-              end
-    config = { 'local_ip' => default_local_ip }.merge(tunnel_config)
-    SshTunnels::Tunnel.new(name, user, config, gateway, passphrase)
-  end
-  ui = SshTunnels::UI.new(tunnels)
+  ui = SshTunnels::UI.new(config, user, passphrase)
   ui.run
 rescue Interrupt
   puts 'Interrupt detected.'
-  ui.shutdown
+  ui&.shutdown
 end

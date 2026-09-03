@@ -149,3 +149,107 @@ RSpec.describe SshTunnels::Tunnel do
     end
   end
 end
+
+RSpec.describe SshTunnels::Tunnel, 'configuration reload' do
+  subject(:tunnel) { described_class.new('postgres', 'bob', config, gateway, 'secret') }
+
+  let(:config) { { 'host' => 'db.internal', 'remote_port' => 5432, 'local_port' => 6000 } }
+  let(:gateway) { { 'host' => 'gateway.example.com', 'user' => 'deploy' } }
+  let(:new_config) { config.merge('local_port' => 7000) }
+  let(:bound_ports) { [] }
+  let(:session) { FakeSession.new(loop_behavior: :clean, bound_ports: bound_ports) }
+
+  before { allow(Net::SSH).to receive(:start).and_return(session) }
+
+  def build(name, config: self.config, gateway: self.gateway)
+    described_class.new(name, 'bob', config, gateway, 'secret')
+  end
+
+  describe '#update' do
+    it 'applies new settings immediately while disconnected' do
+      tunnel.update(new_config, gateway)
+
+      expect(tunnel.config).to eq(new_config)
+      expect(tunnel.changed?).to be(false)
+    end
+
+    it 'defers new settings while connected and applies them on disconnect' do
+      tunnel.open
+      tunnel.update(new_config, gateway)
+
+      expect(tunnel.config).to eq(config)
+      expect(tunnel.changed?).to be(true)
+
+      tunnel.shutdown
+
+      expect(tunnel.config).to eq(new_config)
+      expect(tunnel.changed?).to be(false)
+    end
+
+    it 'applies deferred settings when reconnecting after the connection dropped' do
+      tunnel.open
+      tunnel.update(new_config, gateway)
+      tunnel.instance_variable_set(:@active, false) # simulate the run loop ending on its own
+      tunnel.instance_variable_get(:@thread).join
+
+      tunnel.open
+      expect(tunnel.config).to eq(new_config)
+      tunnel.shutdown
+    end
+
+    it 'drops a pending change if the settings are reverted before disconnecting' do
+      tunnel.open
+      tunnel.update(new_config, gateway)
+      tunnel.update(config, gateway)
+
+      expect(tunnel.changed?).to be(false)
+      tunnel.shutdown
+      expect(tunnel.config).to eq(config)
+    end
+
+    it 'clears the removed flag' do
+      tunnel.remove
+      tunnel.update(config, gateway)
+
+      expect(tunnel.removed?).to be(false)
+    end
+  end
+
+  describe '.reconcile' do
+    it 'keeps the existing object for a tunnel that is still configured' do
+      current = [tunnel]
+      result = described_class.reconcile(current, [build('postgres', config: new_config)])
+
+      expect(result).to eq([tunnel])
+      expect(tunnel.config).to eq(new_config)
+    end
+
+    it 'adds new tunnels and drops inactive removed ones, in configuration order' do
+      redis = build('redis')
+      result = described_class.reconcile([tunnel], [redis, build('postgres')])
+
+      expect(result.map(&:name)).to eq(%w[redis postgres])
+      expect(result.last).to equal(tunnel)
+    end
+
+    it 'keeps a removed tunnel that is still connected and flags it' do
+      tunnel.open
+      result = described_class.reconcile([tunnel], [build('redis')])
+
+      expect(result.map(&:name)).to eq(%w[redis postgres])
+      expect(tunnel.removed?).to be(true)
+      expect(tunnel.active?).to be(true)
+      tunnel.shutdown
+    end
+
+    it 'un-flags a removed tunnel that reappears in the configuration' do
+      tunnel.open
+      described_class.reconcile([tunnel], [])
+      result = described_class.reconcile([tunnel], [build('postgres')])
+
+      expect(result).to eq([tunnel])
+      expect(tunnel.removed?).to be(false)
+      tunnel.shutdown
+    end
+  end
+end

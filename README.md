@@ -103,6 +103,16 @@ tunnels:
     remote: 8080
 ```
 
+## Live reload
+
+The configuration file is checked once a second while the app is running. Saving a change updates the tunnel list in place, so there is no need to quit and reconnect:
+
+* New tunnels appear and can be connected straight away.
+* Tunnels that are disconnected take their new settings immediately.
+* Tunnels that are connected keep running on their current settings. They are marked `config changed, reconnect to apply` and pick up the new settings when next disconnected.
+* Tunnels deleted from the file are removed from the list if disconnected. If connected they stay listed, marked `removed from config`, until disconnected.
+* An invalid or half-saved file is reported in the status line and leaves the current tunnels untouched until the next successful reload.
+
 ## Contributing
 
 Pull requests are welcome.

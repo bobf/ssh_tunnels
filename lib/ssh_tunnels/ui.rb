@@ -5,19 +5,27 @@ module SshTunnels
   # User Interface
   class UI
     IDENTIFIERS = ['1'..'9', 'a'..'z', 'A'..'Z'].map(&:to_a).flatten
+    COLORS = {
+      white: Curses::COLOR_WHITE,
+      blue: Curses::COLOR_BLUE,
+      green: Curses::COLOR_GREEN,
+      cyan: Curses::COLOR_CYAN,
+      red: Curses::COLOR_RED,
+      yellow: Curses::COLOR_YELLOW
+    }.freeze
 
-    def initialize(tunnels)
-      @tunnels = tunnels
+    def initialize(config, user, passphrase)
+      @config = config
+      @user = user
+      @passphrase = passphrase
+      @tunnels = config.tunnels(user, passphrase)
+      @config_mtime = config.mtime
     end
 
     def setup
       Curses.init_screen
       Curses.start_color
-      Curses.init_pair(1, Curses::COLOR_WHITE, Curses::COLOR_BLACK)
-      Curses.init_pair(2, Curses::COLOR_BLUE, Curses::COLOR_BLACK)
-      Curses.init_pair(3, Curses::COLOR_GREEN, Curses::COLOR_BLACK)
-      Curses.init_pair(4, Curses::COLOR_CYAN, Curses::COLOR_BLACK)
-      Curses.init_pair(5, Curses::COLOR_RED, Curses::COLOR_BLACK)
+      COLORS.each_value.with_index(1) { |value, pair| Curses.init_pair(pair, value, Curses::COLOR_BLACK) }
       Curses.timeout = 1000
       Curses.curs_set(0)
       Curses.noecho
@@ -44,6 +52,8 @@ module SshTunnels
 
     def monitor
       loop do
+        reload_if_changed
+        prune_removed
         @tunnels.each_with_index do |tunnel, index|
           display_tunnel(tunnel, index)
         end
@@ -61,6 +71,37 @@ module SshTunnels
       clean_status if @status_time && Time.now.utc - @status_time > 2.5
     end
 
+    # The configuration file is polled once per tick (see Curses.timeout). A
+    # change triggers a reload; an unreadable or invalid file leaves the
+    # current tunnels untouched and reports the problem until the next
+    # successful reload.
+    def reload_if_changed
+      mtime = @config.mtime
+      return if mtime == @config_mtime
+
+      @config_mtime = mtime
+      reload
+    end
+
+    def reload
+      @config = Config.load(@config.path)
+      @tunnels = Tunnel.reconcile(@tunnels, @config.tunnels(@user, @passphrase))
+      window.erase
+      status('Configuration reloaded.')
+    rescue ConfigError => e
+      status("Configuration error: #{e.message.lines.first.chomp}", sticky: true)
+    end
+
+    # Tunnels removed from the configuration stay listed while connected and
+    # disappear once they are no longer active.
+    def prune_removed
+      orphans = @tunnels.select { |tunnel| tunnel.removed? && !tunnel.active? }
+      return if orphans.empty?
+
+      @tunnels -= orphans
+      window.erase
+    end
+
     def window
       @window ||= Curses.stdscr
     end
@@ -74,21 +115,45 @@ module SshTunnels
       window.addstr("#{tunnel.name} ")
       window.attrset(color(:cyan))
       window.addstr(tunnel.to_s)
+      display_marker(tunnel)
+      window.clrtoeol
     end
     # rubocop:enable Metrics/AbcSize
+
+    def display_marker(tunnel)
+      marker = tunnel_marker(tunnel)
+      return if marker.nil?
+
+      window.attrset(color(:yellow))
+      window.addstr(" [#{marker}]")
+    end
+
+    def tunnel_marker(tunnel)
+      return 'removed from config, disconnect to clear' if tunnel.removed?
+      return 'config changed, reconnect to apply' if tunnel.changed?
+
+      nil
+    end
 
     def display_usage
       window.setpos(@tunnels.size + 3, 2)
       window.attrset(color(:cyan))
-      message = "[1-#{IDENTIFIERS[@tunnels.size - 1]}] to connect/disconnect. Press 'q' to quit."
-      window.addstr(message)
+      window.addstr(usage_message)
+      window.clrtoeol
+    end
+
+    def usage_message
+      return "No tunnels configured. Press 'q' to quit." if @tunnels.empty?
+
+      "[1-#{IDENTIFIERS[@tunnels.size - 1]}] to connect/disconnect. Press 'q' to quit."
     end
 
     def process_input(input)
       raise UserQuit if input == 'q'
       return status("Unrecognized input: #{input}") unless input.is_a?(String) && input =~ /\A[0-9a-zA-Z]\Z/
 
-      tunnel = @tunnels[IDENTIFIERS.index { |value| value == input }]
+      index = IDENTIFIERS.index(input)
+      tunnel = index && @tunnels[index]
       return status("Unrecognized tunnel: #{input}") if tunnel.nil?
 
       toggle_tunnel(tunnel)
@@ -107,9 +172,11 @@ module SshTunnels
       tunnel.active? ? color(:green) : color(:blue)
     end
 
-    def status(message)
+    # A sticky status stays until replaced by the next status message rather
+    # than being cleared after a few seconds.
+    def status(message, sticky: false)
       clean_status
-      @status_time = Time.now.utc
+      @status_time = sticky ? nil : Time.now.utc
       window.setpos(*status_coordinates)
       window.attrset(color(:white))
       window.addstr(message)
@@ -120,7 +187,7 @@ module SshTunnels
       y, x = status_coordinates
       window.setpos(y, x)
       window.attrset(color(:white))
-      window.addstr(' ' * (Curses.cols - x))
+      window.clrtoeol
     end
 
     def status_coordinates
@@ -128,15 +195,7 @@ module SshTunnels
     end
 
     def color(name)
-      Curses.color_pair(
-        {
-          white: 1,
-          blue: 2,
-          green: 3,
-          cyan: 4,
-          red: 5
-        }.fetch(name)
-      )
+      Curses.color_pair(COLORS.keys.index(name) + 1)
     end
   end
   # rubocop:enable Metrics/ClassLength
