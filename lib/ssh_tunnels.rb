@@ -6,6 +6,7 @@ require 'yaml'
 
 require 'ssh_tunnels/version'
 require 'ssh_tunnels/config'
+require 'ssh_tunnels/stderr_capture'
 require 'ssh_tunnels/tunnel'
 require 'ssh_tunnels/ui'
 

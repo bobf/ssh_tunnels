@@ -113,6 +113,10 @@ The configuration file is checked once a second while the app is running. Saving
 * Tunnels deleted from the file are removed from the list if disconnected. If connected they stay listed, marked `removed from config`, until disconnected.
 * An invalid or half-saved file is reported in the status line and leaves the current tunnels untouched until the next successful reload.
 
+## Error output
+
+Anything written to the standard error stream while the app is running (a backtrace from a failed connection, for example) is captured and shown below the tunnel list. Press `Esc` to clear it. Only the most recent output is kept.
+
 ## Contributing
 
 Pull requests are welcome.

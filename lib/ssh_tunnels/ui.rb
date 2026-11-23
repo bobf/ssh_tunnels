@@ -13,6 +13,7 @@ module SshTunnels
       red: Curses::COLOR_RED,
       yellow: Curses::COLOR_YELLOW
     }.freeze
+    ESCAPE = [27, "\e"].freeze
 
     def initialize(config, user, passphrase)
       @config = config
@@ -20,9 +21,11 @@ module SshTunnels
       @passphrase = passphrase
       @tunnels = config.tunnels(user, passphrase)
       @config_mtime = config.mtime
+      @stderr_capture = StderrCapture.new
     end
 
     def setup
+      @stderr_capture.start
       Curses.init_screen
       Curses.start_color
       COLORS.each_value.with_index(1) { |value, pair| Curses.init_pair(pair, value, Curses::COLOR_BLACK) }
@@ -37,11 +40,11 @@ module SshTunnels
     rescue Net::SSH::Disconnect, Errno::ECONNRESET => e
       shutdown("Error encountered: #{e}")
     ensure
-      Curses.close_screen
+      close_screen
     end
 
     def shutdown(error = nil)
-      Curses.close_screen
+      close_screen
       puts error unless error.nil?
       puts 'Shutting down connections.'
       @tunnels.select(&:active?).each(&:shutdown)
@@ -50,13 +53,17 @@ module SshTunnels
 
     private
 
+    def close_screen
+      Curses.close_screen
+      @stderr_capture.stop
+    end
+
     def monitor
       loop do
         reload_if_changed
         prune_removed
-        @tunnels.each_with_index do |tunnel, index|
-          display_tunnel(tunnel, index)
-        end
+        @tunnels.each_with_index { |tunnel, index| display_tunnel(tunnel, index) }
+        display_error_output
         refresh
       end
     rescue UserQuit
@@ -148,8 +155,43 @@ module SshTunnels
       "[1-#{IDENTIFIERS[@tunnels.size - 1]}] to connect/disconnect. Press 'q' to quit."
     end
 
+    # Output captured from the standard error stream (a backtrace, usually) is
+    # drawn below the status line, one line per row, until cleared with Esc.
+    # Output that does not fit the window is cut short.
+    def display_error_output
+      top = status_coordinates.first + 2
+      clear_rows(top)
+      rows = window.maxy - top - 1
+      return if @stderr_capture.empty? || rows < 1
+
+      write_line(top, 'Error output (Esc to clear):', :yellow)
+      error_lines(rows).each_with_index { |line, index| write_line(top + 1 + index, line, :red) }
+    end
+
+    def error_lines(rows)
+      lines = @stderr_capture.lines([window.maxx - 4, 1].max)
+      hidden = lines.size - rows
+      return lines unless hidden.positive?
+
+      lines.first(rows - 1) << "... #{hidden + 1} more lines"
+    end
+
+    def write_line(row, text, color_name)
+      window.attrset(color(color_name))
+      window.setpos(row, 2)
+      window.addstr(text)
+    end
+
+    def clear_rows(top)
+      (top...window.maxy).each do |row|
+        window.setpos(row, 0)
+        window.clrtoeol
+      end
+    end
+
     def process_input(input)
       raise UserQuit if input == 'q'
+      return @stderr_capture.clear if ESCAPE.include?(input)
       return status("Unrecognized input: #{input}") unless input.is_a?(String) && input =~ /\A[0-9a-zA-Z]\Z/
 
       index = IDENTIFIERS.index(input)
